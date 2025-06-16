@@ -1,0 +1,1905 @@
+질문 : mcp서버를 수백개 만들었는데
+문제는
+
+서버간 기능 중복이 너무 많아 -> 통합 및 분리의 필요성 발생
+어느 정도가 쓸만한 수준인지를 측정하는 기준이 없어 -> 즉, 전문mcp서버로서의 기능적 충분성을 갖추었는지 알수가 없어
+통합 및 분리과정에서 엄청난 에러가 생길 가능성이 있어 . 현재도 또한 에러가 많아 -> 검증할 툴이 필요
+이 3가지를 효과적으로 대응할 각각의 원칙, 기준, 프로그램 소스가 있으면 만들어줘
+
+
+답변 : 구글 제미나이 2.5 프로 ---------------------------------------------------------------------------------------------------------------------------
+
+MCP 서버를 수백 개 운영하시면서 발생하는 기능 중복, 기능 충분성 판단의 어려움, 그리고 통합/분리 시 발생하는 에러 문제에 대한 원칙, 기준, 그리고 프로그램 소스 아이디어를 제시해 드리겠습니다. 이는 복잡한 시스템에 대한 해결책이므로, 제시된 내용을 바탕으로 팀과 논의하여 구체적인 구현 방안을 마련하시는 것이 중요합니다.
+
+MCP 서버 관리 문제 해결 방안
+1. 서버 간 기능 중복 해결: 통합 및 분리의 원칙
+원칙:
+
+단일 책임 원칙 (Single Responsibility Principle, SRP): 각 서버(또는 모듈)는 하나의 명확하고 잘 정의된 책임만을 가져야 합니다. 즉, 하나의 기능 변경이 여러 서버에 영향을 미치지 않도록 설계합니다.
+서비스 경계 명확화: 각 서버가 담당하는 기능의 범위를 명확히 정의하고, 중복되는 기능을 찾아 하나의 서비스로 통합하거나 더 작은 단위로 분리합니다.
+응집도(Cohesion) 증대, 결합도(Coupling) 감소: 유사한 기능은 한 곳에 모아 응집도를 높이고, 서버 간 의존성은 최소화하여 결합도를 낮춥니다.
+구체적인 기준:
+
+기능별 그룹화: 현재 분산된 기능을 유사성 및 연관성에 따라 그룹화합니다. (예: 인증 관련 기능, 데이터 저장/조회 기능, 특정 계산 로직 기능 등)
+데이터 소유권: 특정 데이터에 대한 쓰기 권한은 하나의 서버/서비스만 가지도록 합니다. 읽기 권한은 공유 가능하나, 데이터 변경은 소유자 서버를 통해서만 이루어지도록 합니다.
+트랜잭션 경계: 하나의 비즈니스 트랜잭션이 여러 서버에 걸쳐 복잡하게 분산되지 않도록, 가능한 한 하나의 서비스 내에서 완결되도록 설계합니다.
+성능/확장성 요구사항: 특정 기능이 높은 트래픽이나 컴퓨팅 자원을 요구한다면, 해당 기능만 별도의 서버로 분리하여 독립적인 확장성을 확보합니다.
+책임 명세화: 각 서버/서비스가 어떤 API를 제공하고, 어떤 데이터를 사용하며, 어떤 비즈니스 로직을 수행하는지 명확히 문서화합니다.
+프로그램 소스 (아이디어):
+
+기능 중복을 식별하고 통합/분리 계획을 세우는 데 도움을 주는 분석 스크립트 아이디어입니다.
+
+Python
+
+import os
+import json
+from collections import defaultdict
+
+def analyze_server_codebase(base_path, keywords_file):
+    """
+    서버 코드베이스를 분석하여 특정 기능 키워드와 파일 간의 관계를 매핑합니다.
+    Args:
+        base_path (str): 서버 코드들이 저장된 상위 디렉토리 경로.
+        keywords_file (str): 기능 키워드가 정의된 JSON 파일 경로.
+    Returns:
+        dict: {기능_키워드: [관련_파일_경로, ...]},
+              {파일_경로: [포함된_기능_키워드, ...]}
+    """
+    function_to_files = defaultdict(list)
+    file_to_functions = defaultdict(list)
+
+    # 1. 기능 키워드 로드
+    try:
+        with open(keywords_file, 'r', encoding='utf-8') as f:
+            function_keywords = json.load(f)
+        print(f"Loaded {len(function_keywords)} function keywords.")
+    except FileNotFoundError:
+        print(f"Error: Keywords file not found at {keywords_file}")
+        return {}, {}
+
+    # 2. 코드 파일 순회 및 키워드 매칭
+    for root, _, files in os.walk(base_path):
+        for file_name in files:
+            if file_name.endswith(('.py', '.java', '.js', '.ts', '.go', '.cs', '.php')): # 분석할 파일 확장자
+                file_path = os.path.join(root, file_name)
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read().lower() # 소문자로 변환하여 검색
+
+                    found_keywords_in_file = []
+                    for func_name, keywords in function_keywords.items():
+                        for keyword in keywords:
+                            if keyword.lower() in content:
+                                function_to_files[func_name].append(file_path)
+                                found_keywords_in_file.append(func_name)
+                                break # 해당 기능의 키워드 중 하나라도 찾으면 다음 기능으로 이동
+                    if found_keywords_in_file:
+                        file_to_functions[file_path] = list(set(found_keywords_in_file)) # 중복 제거
+
+                except Exception as e:
+                    print(f"Error processing file {file_path}: {e}")
+
+    # 3. 중복 기능 보고서 생성
+    print("\n--- 기능별 관련 파일 분석 (중복 가능성) ---")
+    for func, files_list in function_to_files.items():
+        if len(files_list) > 1:
+            print(f"기능 '{func}': {len(files_list)}개 파일에서 발견")
+            for f in files_list:
+                print(f"  - {f}")
+
+    print("\n--- 파일별 포함된 기능 분석 ---")
+    for file_path, functions_list in file_to_functions.items():
+        if len(functions_list) > 1:
+            print(f"파일 '{file_path}': {len(functions_list)}개 기능 포함")
+            for func in functions_list:
+                print(f"  - {func}")
+
+    return function_to_files, file_to_functions
+
+# 사용 예시
+if __name__ == "__main__":
+    # 1. 'function_keywords.json' 파일 생성 (예시)
+    # 각 기능과 그 기능을 나타내는 키워드들을 정의합니다.
+    # 키워드는 코드 내에서 해당 기능을 유추할 수 있는 문자열이어야 합니다.
+    # 예: "user_authentication": ["login", "register", "auth", "token"]
+    # "payment_processing": ["pay", "charge", "billing", "invoice"]
+    # "notification_service": ["send_email", "sms", "alert"]
+    sample_keywords = {
+        "User_Authentication": ["login", "register", "authenticate", "auth_token", "password_reset"],
+        "Payment_Processing": ["payment", "charge", "billing", "invoice", "transaction_id"],
+        "Notification_Service": ["send_email", "sms_send", "push_notification", "alert_message"],
+        "Data_Analytics": ["analyze_data", "report_generation", "metrics", "dashboard_data"],
+        "Order_Management": ["create_order", "update_order_status", "order_history", "cancel_order"],
+        "Product_Catalog": ["get_product_info", "list_products", "add_product", "update_product_details"]
+    }
+    with open('function_keywords.json', 'w', encoding='utf-8') as f:
+        json.dump(sample_keywords, f, indent=4)
+
+    # 2. 분석할 서버 코드들이 있는 상위 디렉토리 경로 지정
+    # 예: '/path/to/your/mcp_servers_root'
+    # 실제 환경에 맞게 이 경로를 변경하세요.
+    server_code_base_path = './sample_servers' # 예시: 현재 디렉토리 아래 sample_servers 폴더
+
+    # 테스트를 위한 샘플 서버 코드 생성 (실제 환경에서는 기존 코드를 사용)
+    os.makedirs(server_code_base_path, exist_ok=True)
+    os.makedirs(os.path.join(server_code_base_path, 'auth_service'), exist_ok=True)
+    os.makedirs(os.path.join(server_code_base_path, 'order_service'), exist_ok=True)
+    os.makedirs(os.path.join(server_code_base_path, 'legacy_monolith'), exist_ok=True)
+
+    with open(os.path.join(server_code_base_path, 'auth_service', 'login.py'), 'w') as f:
+        f.write("def handle_login(user, password):\n    # Authenticate user\n    print('User login attempt')")
+    with open(os.path.join(server_code_base_path, 'order_service', 'create.py'), 'w') as f:
+        f.write("def create_order(items, user):\n    # Order processing\n    print('Creating new order')")
+    with open(os.path.join(server_code_base_path, 'legacy_monolith', 'main.py'), 'w') as f:
+        f.write("def legacy_login(user, pwd):\n    # Old authentication logic\n    print('Legacy user login')\n\ndef process_payment_old(amount):\n    print('Processing payment')\n")
+    with open(os.path.join(server_code_base_path, 'auth_service', 'register.py'), 'w') as f:
+        f.write("def register_user(data):\n    # Register new user\n    print('User registration')")
+    with open(os.path.join(server_code_base_path, 'order_service', 'payment.py'), 'w') as f:
+        f.write("def handle_payment(order_id, amount):\n    # Payment processing for orders\n    print('Handling payment for order')")
+
+
+    # 3. 분석 실행
+    func_to_files, file_to_funcs = analyze_server_codebase(server_code_base_path, 'function_keywords.json')
+
+    print("\n--- 최종 분석 결과 요약 ---")
+    print("기능별 파일 매핑:", dict(func_to_files))
+    print("파일별 기능 매핑:", dict(file_to_funcs))
+설명:
+이 스크립트는 function_keywords.json 파일에 정의된 기능별 키워드를 사용하여 코드베이스 내의 파일들을 스캔합니다. 결과로 특정 기능이 여러 파일에 걸쳐 나타나는 경우(중복 가능성)와 하나의 파일이 여러 기능을 포함하는 경우(분리 필요성)를 보고합니다. 이는 수동 분석의 기반이 될 수 있습니다.
+
+2. 전문 MCP 서버 기능적 충분성 측정 기준
+기준 (서비스 수준 정의):
+
+핵심 기능 완성도: 각 MCP 서버가 담당하는 핵심 기능이 사용자(또는 다른 서비스)의 요구사항을 100% 충족하는지 여부. (예: 인증 서버라면 모든 인증 방식 지원 여부, 보안성 등)
+성능 목표 달성: 응답 시간, 처리량, 동시 접속자 수 등 SLA(Service Level Agreement)에 정의된 성능 목표를 달성하는지 여부.
+가용성 및 안정성: 서버가 예상치 못한 장애 없이 지속적으로 운영될 수 있는 가용성 수준 (99.9% 등) 및 안정성.
+확장성: 트래픽 증가에 따라 서버를 쉽게 확장(Scale-out)할 수 있는 아키텍처적 유연성.
+모니터링 및 로깅: 서버의 상태, 성능, 에러 등을 실시간으로 모니터링하고 기록할 수 있는 시스템 구축 여부.
+보안: 데이터 암호화, 접근 제어, 취약점 관리 등 보안 표준 준수 여부.
+문서화: 각 서버의 API, 비즈니스 로직, 배포 가이드 등이 최신 상태로 잘 문서화되어 있는지 여부.
+프로그램 소스 (아이디어):
+
+기능적 충분성을 검증하기 위한 도구는 주로 모니터링, 부하 테스트, 통합 테스트 도구들입니다.
+
+모니터링 및 알림 시스템 통합:
+
+Prometheus & Grafana: 서버의 CPU, 메모리, 네트워크, 응답 시간, 에러율 등 핵심 지표를 수집하고 시각화합니다. 임계치 설정 및 알림 기능을 통해 문제 발생 시 즉각적인 대응이 가능하게 합니다.
+ELK Stack (Elasticsearch, Logstash, Kibana): 서버 로그를 중앙 집중적으로 수집, 분석, 시각화하여 에러 패턴, 사용자 행동 등을 파악하고 문제 해결에 활용합니다.
+부하 테스트 도구:
+
+JMeter (Apache JMeter): 다양한 프로토콜(HTTP/S, TCP 등)을 지원하며, 서버에 실제와 유사한 부하를 주어 성능 병목 지점을 찾고, 최대 처리량을 측정합니다.
+Locust: Python 코드로 부하 테스트 시나리오를 작성할 수 있어 유연성이 높습니다. 분산 테스트를 통해 대규모 부하를 시뮬레이션할 수 있습니다.
+통합 테스트 프레임워크:
+
+Selenium/Playwright (UI 테스트): 프론트엔드와 연동된 특정 기능이 최종 사용자 관점에서 올바르게 작동하는지 테스트합니다.
+Postman/Insomnia (API 테스트): 각 서버의 API가 독립적으로, 그리고 다른 서버와 연동될 때 올바른 응답을 주는지 검증합니다. 스크립팅 기능을 통해 테스트 자동화가 가능합니다.
+Python requests + pytest (백엔드 단위/통합 테스트): Python으로 백엔드 API 호출 스크립트를 작성하고 pytest 프레임워크를 사용하여 테스트 케이스를 관리하고 자동화합니다.
+Python pytest 예시 (간단한 API 테스트):
+
+Python
+
+# test_api.py
+import requests
+import pytest
+
+BASE_URL = "http://your-mcp-server-ip:port" # 실제 서버 주소로 변경
+
+def test_user_login_success():
+    """성공적인 사용자 로그인 테스트"""
+    url = f"{BASE_URL}/auth/login"
+    payload = {"username": "testuser", "password": "password123"}
+    response = requests.post(url, json=payload)
+    assert response.status_code == 200
+    assert "token" in response.json()
+    assert response.json()["message"] == "Login successful"
+
+def test_get_product_list():
+    """상품 목록 조회 테스트"""
+    url = f"{BASE_URL}/products"
+    response = requests.get(url)
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+    assert len(response.json()) > 0 # 최소한 하나 이상의 상품이 있어야 함
+
+def test_create_order_invalid_data():
+    """유효하지 않은 데이터로 주문 생성 시도 테스트"""
+    url = f"{BASE_URL}/orders/create"
+    invalid_payload = {"items": [], "user_id": "invalid_id"} # 유효하지 않은 데이터
+    response = requests.post(url, json=invalid_payload)
+    assert response.status_code == 400 # Bad Request 기대
+    assert "error" in response.json()
+실행: 터미널에서 pytest 명령어를 실행하면 테스트가 진행됩니다.
+
+3. 통합 및 분리 과정 에러 검증 툴
+원칙:
+
+자동화된 테스트 우선: 수동 테스트는 한계가 있으므로, 통합/분리 전후에 실행할 수 있는 자동화된 테스트 스위트를 구축합니다.
+롤백 가능한 배포 전략: 에러 발생 시 신속하게 이전 버전으로 되돌릴 수 있는 배포 파이프라인을 구축합니다.
+점진적 통합/분리: 한 번에 모든 것을 바꾸려 하지 않고, 작은 단위부터 점진적으로 통합하거나 분리하며 각 단계마다 철저히 검증합니다.
+커뮤니케이션: 변경 사항에 대해 관련 팀원들 간의 명확한 커뮤니케이션을 유지합니다.
+구체적인 기준:
+
+API 계약 테스트: 각 서비스의 API 인터페이스가 변경되지 않았는지, 또는 변경되었다면 모든 호출자가 업데이트되었는지 확인합니다. (Swagger/OpenAPI 문서 기반 테스트)
+서비스 간 의존성 매핑: 각 서버가 어떤 다른 서버의 API를 호출하는지, 어떤 데이터를 주고받는지 시각적으로 매핑하여 변경의 영향을 예측합니다.
+CI/CD 파이프라인 통합: 코드 변경이 발생할 때마다 자동으로 테스트, 빌드, 배포가 이루어지도록 CI/CD(Continuous Integration/Continuous Deployment) 파이프라인을 구축합니다.
+성능 리그레션 테스트: 통합/분리 후 기존 대비 성능 저하가 없는지 확인하는 테스트를 수행합니다.
+프로그램 소스 (아이디어):
+
+에러 검증 및 방지를 위한 도구 및 전략:
+
+컨트랙트 테스트 (Contract Testing):
+Pact (소비자-주도 컨트랙트 테스트): 서비스 간의 API 계약을 테스트하여, 소비자가 기대하는 API 형태가 제공자에 의해 충족되는지 확인합니다. 이는 통합 테스트의 복잡성을 줄이고 서비스 간의 불일치로 인한 에러를 조기에 발견하는 데 효과적입니다.
+예시 (Pact 사용 개념):
+Consumer (클라이언트) 측: "나는 A 서비스에서 이런 형식의 응답을 기대해." 라는 테스트 코드를 작성하면, Pact가 Consumer의 기대를 담은 컨트랙트 파일을 생성합니다.
+Provider (서버) 측: Provider는 이 컨트랙트 파일을 받아 "내가 제공하는 API는 Consumer의 기대와 일치하는가?"를 검증하는 테스트를 실행합니다.
+이렇게 하면 A 서비스가 변경되었을 때, A 서비스를 사용하는 모든 B, C, D 서비스의 통합 테스트를 돌릴 필요 없이, A 서비스 자체에서 자신의 변경이 다른 서비스의 기대를 깨뜨리지 않는지 확인할 수 있습니다.
+API 게이트웨이 및 서비스 메시:
+API Gateway (예: Kong, Apigee): 모든 외부 요청의 진입점을 단일화하여 라우팅, 인증/인가, 로깅, 트래픽 제어 등을 중앙에서 관리합니다. 서버 분리/통합 시 API 라우팅만 변경하면 되므로 유연성을 높입니다.
+Service Mesh (예: Istio, Linkerd): 마이크로서비스 간의 통신을 제어하고, 트래픽 관리(라우팅, 로드 밸런싱), 회복성(재시도, 타임아웃), 보안(mTLS), 모니터링 기능을 제공합니다. 서비스 분리/통합 시 복잡한 네트워크 구성을 추상화하여 에러 발생 가능성을 줄입니다.
+오픈 소스 코드 스캐너:
+SonarQube: 코드 품질, 보안 취약점, 버그 등을 정적으로 분석하여 잠재적인 에러를 사전에 발견합니다.
+Linters (예: Python의 Flake8, Pylint, JavaScript의 ESLint): 코드 스타일 및 잠재적인 오류를 잡아내어 코드 일관성을 유지하고 버그를 줄입니다.
+버전 관리 시스템 (Git) 및 코드 리뷰:
+모든 변경 사항은 Git을 통해 관리하고, Pull Request/Merge Request 기반의 코드 리뷰 프로세스를 의무화합니다. 이를 통해 다른 팀원이 변경 사항을 검토하고 잠재적인 에러를 발견할 수 있습니다.
+결론적으로, MCP 서버 관리는 단순히 코드를 변경하는 것을 넘어, 시스템 아키텍처, 개발 프로세스, 모니터링, 테스트 전략 등 전반적인 소프트웨어 개발 라이프사이클(SDLC)에 대한 깊은 이해와 적용이 필요합니다. 제시된 원칙, 기준, 도구 아이디어를 바탕으로 팀의 상황에 맞춰 점진적으로 개선해나가시길 바랍니다.
+
+----------------------------------  클로드 4.0 ------------------------------------------------------------------------------------
+
+
+#!/usr/bin/env python3
+"""
+MCP 서버 통합관리 시스템
+- 중복 기능 분석 및 통합/분리 제안
+- 전문성 수준 평가
+- 에러 검증 및 품질 관리
+"""
+
+import json
+import ast
+import os
+import re
+from typing import Dict, List, Set, Tuple, Any
+from dataclasses import dataclass, asdict
+from collections import defaultdict, Counter
+import hashlib
+import subprocess
+import sys
+
+@dataclass
+class MCPFunction:
+    """MCP 함수 정보"""
+    name: str
+    description: str
+    parameters: Dict
+    file_path: str
+    line_number: int
+    complexity_score: int = 0
+    
+@dataclass
+class MCPServer:
+    """MCP 서버 정보"""
+    name: str
+    path: str
+    functions: List[MCPFunction]
+    dependencies: List[str]
+    error_count: int = 0
+    test_coverage: float = 0.0
+    
+@dataclass
+class DuplicationAnalysis:
+    """중복 분석 결과"""
+    similar_functions: List[Tuple[str, str, float]]  # (func1, func2, similarity)
+    duplicate_servers: List[Tuple[str, str, float]]
+    consolidation_suggestions: List[Dict]
+
+@dataclass
+class QualityMetrics:
+    """품질 메트릭"""
+    functionality_completeness: float  # 기능 완성도
+    code_quality: float  # 코드 품질
+    documentation_score: float  # 문서화 점수
+    test_coverage: float  # 테스트 커버리지
+    error_resilience: float  # 에러 복원력
+    professional_readiness: float  # 전문 서버 준비도
+
+class MCPAnalyzer:
+    """MCP 서버 분석기"""
+    
+    def __init__(self, base_path: str):
+        self.base_path = base_path
+        self.servers: List[MCPServer] = []
+        self.function_registry: Dict[str, List[MCPFunction]] = defaultdict(list)
+        
+    def scan_servers(self) -> None:
+        """MCP 서버들을 스캔하여 정보 수집"""
+        for root, dirs, files in os.walk(self.base_path):
+            for file in files:
+                if file.endswith('.py') and 'mcp' in file.lower():
+                    file_path = os.path.join(root, file)
+                    server = self._analyze_server_file(file_path)
+                    if server:
+                        self.servers.append(server)
+                        
+    def _analyze_server_file(self, file_path: str) -> MCPServer:
+        """개별 서버 파일 분석"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            tree = ast.parse(content)
+            functions = []
+            dependencies = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    if self._is_mcp_function(node):
+                        func = self._extract_function_info(node, file_path)
+                        functions.append(func)
+                        
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        dependencies.append(alias.name)
+                        
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        dependencies.append(node.module)
+            
+            server_name = os.path.basename(file_path).replace('.py', '')
+            return MCPServer(
+                name=server_name,
+                path=file_path,
+                functions=functions,
+                dependencies=dependencies
+            )
+            
+        except Exception as e:
+            print(f"Error analyzing {file_path}: {e}")
+            return None
+            
+    def _is_mcp_function(self, node: ast.FunctionDef) -> bool:
+        """MCP 함수인지 판단"""
+        decorators = [d.id if isinstance(d, ast.Name) else str(d) for d in node.decorator_list]
+        mcp_indicators = ['tool', 'mcp_tool', 'server_tool', 'function']
+        return any(indicator in str(decorators) for indicator in mcp_indicators)
+        
+    def _extract_function_info(self, node: ast.FunctionDef, file_path: str) -> MCPFunction:
+        """함수 정보 추출"""
+        description = ast.get_docstring(node) or ""
+        parameters = {}
+        
+        # 함수 매개변수 분석
+        for arg in node.args.args:
+            param_type = "Any"
+            if node.args.annotations:
+                # 타입 힌트가 있으면 추출
+                pass
+            parameters[arg.arg] = {"type": param_type}
+            
+        complexity = self._calculate_complexity(node)
+        
+        return MCPFunction(
+            name=node.name,
+            description=description,
+            parameters=parameters,
+            file_path=file_path,
+            line_number=node.lineno,
+            complexity_score=complexity
+        )
+        
+    def _calculate_complexity(self, node: ast.FunctionDef) -> int:
+        """함수 복잡도 계산 (McCabe Complexity 기반)"""
+        complexity = 1
+        for child in ast.walk(node):
+            if isinstance(child, (ast.If, ast.While, ast.For, ast.Try)):
+                complexity += 1
+            elif isinstance(child, ast.BoolOp):
+                complexity += len(child.values) - 1
+        return complexity
+
+class DuplicationDetector:
+    """중복 기능 탐지기"""
+    
+    def __init__(self, servers: List[MCPServer]):
+        self.servers = servers
+        
+    def analyze_duplications(self) -> DuplicationAnalysis:
+        """중복 분석 수행"""
+        similar_functions = self._find_similar_functions()
+        duplicate_servers = self._find_duplicate_servers()
+        suggestions = self._generate_consolidation_suggestions(similar_functions, duplicate_servers)
+        
+        return DuplicationAnalysis(
+            similar_functions=similar_functions,
+            duplicate_servers=duplicate_servers,
+            consolidation_suggestions=suggestions
+        )
+        
+    def _find_similar_functions(self) -> List[Tuple[str, str, float]]:
+        """유사한 함수들 찾기"""
+        similar_pairs = []
+        all_functions = []
+        
+        for server in self.servers:
+            for func in server.functions:
+                all_functions.append((f"{server.name}.{func.name}", func))
+                
+        for i, (name1, func1) in enumerate(all_functions):
+            for j, (name2, func2) in enumerate(all_functions[i+1:], i+1):
+                similarity = self._calculate_function_similarity(func1, func2)
+                if similarity > 0.7:  # 70% 이상 유사
+                    similar_pairs.append((name1, name2, similarity))
+                    
+        return sorted(similar_pairs, key=lambda x: x[2], reverse=True)
+        
+    def _calculate_function_similarity(self, func1: MCPFunction, func2: MCPFunction) -> float:
+        """함수 유사도 계산"""
+        # 이름 유사도
+        name_sim = self._string_similarity(func1.name, func2.name)
+        
+        # 설명 유사도
+        desc_sim = self._string_similarity(func1.description, func2.description)
+        
+        # 매개변수 유사도
+        param_sim = self._parameter_similarity(func1.parameters, func2.parameters)
+        
+        # 가중 평균
+        return (name_sim * 0.3 + desc_sim * 0.4 + param_sim * 0.3)
+        
+    def _string_similarity(self, s1: str, s2: str) -> float:
+        """문자열 유사도 (Jaccard similarity)"""
+        if not s1 or not s2:
+            return 0.0
+            
+        words1 = set(s1.lower().split())
+        words2 = set(s2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+            
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union)
+        
+    def _parameter_similarity(self, params1: Dict, params2: Dict) -> float:
+        """매개변수 유사도"""
+        if not params1 or not params2:
+            return 0.0 if params1 != params2 else 1.0
+            
+        keys1 = set(params1.keys())
+        keys2 = set(params2.keys())
+        
+        if not keys1 or not keys2:
+            return 0.0
+            
+        intersection = keys1.intersection(keys2)
+        union = keys1.union(keys2)
+        
+        return len(intersection) / len(union)
+        
+    def _find_duplicate_servers(self) -> List[Tuple[str, str, float]]:
+        """중복 서버 찾기"""
+        duplicate_pairs = []
+        
+        for i, server1 in enumerate(self.servers):
+            for j, server2 in enumerate(self.servers[i+1:], i+1):
+                similarity = self._calculate_server_similarity(server1, server2)
+                if similarity > 0.6:  # 60% 이상 유사
+                    duplicate_pairs.append((server1.name, server2.name, similarity))
+                    
+        return sorted(duplicate_pairs, key=lambda x: x[2], reverse=True)
+        
+    def _calculate_server_similarity(self, server1: MCPServer, server2: MCPServer) -> float:
+        """서버 유사도 계산"""
+        # 함수명 유사도
+        func_names1 = set([f.name for f in server1.functions])
+        func_names2 = set([f.name for f in server2.functions])
+        
+        if not func_names1 or not func_names2:
+            return 0.0
+            
+        name_intersection = func_names1.intersection(func_names2)
+        name_union = func_names1.union(func_names2)
+        name_similarity = len(name_intersection) / len(name_union)
+        
+        # 의존성 유사도
+        deps1 = set(server1.dependencies)
+        deps2 = set(server2.dependencies)
+        
+        if deps1 or deps2:
+            deps_intersection = deps1.intersection(deps2)
+            deps_union = deps1.union(deps2)
+            deps_similarity = len(deps_intersection) / len(deps_union) if deps_union else 0
+        else:
+            deps_similarity = 1.0
+            
+        return (name_similarity * 0.7 + deps_similarity * 0.3)
+        
+    def _generate_consolidation_suggestions(self, similar_functions: List, duplicate_servers: List) -> List[Dict]:
+        """통합 제안사항 생성"""
+        suggestions = []
+        
+        # 함수 통합 제안
+        for func1, func2, similarity in similar_functions[:10]:  # 상위 10개
+            suggestions.append({
+                "type": "function_merge",
+                "items": [func1, func2],
+                "similarity": similarity,
+                "action": f"함수 '{func1}'과 '{func2}'를 통합 검토 (유사도: {similarity:.2f})",
+                "priority": "HIGH" if similarity > 0.9 else "MEDIUM"
+            })
+            
+        # 서버 통합 제안
+        for server1, server2, similarity in duplicate_servers[:5]:  # 상위 5개
+            suggestions.append({
+                "type": "server_merge",
+                "items": [server1, server2],
+                "similarity": similarity,
+                "action": f"서버 '{server1}'과 '{server2}'를 통합 검토 (유사도: {similarity:.2f})",
+                "priority": "HIGH" if similarity > 0.8 else "MEDIUM"
+            })
+            
+        return suggestions
+
+class QualityAssessor:
+    """품질 평가기"""
+    
+    def __init__(self, servers: List[MCPServer]):
+        self.servers = servers
+        
+    def assess_server_quality(self, server: MCPServer) -> QualityMetrics:
+        """서버 품질 평가"""
+        functionality = self._assess_functionality_completeness(server)
+        code_quality = self._assess_code_quality(server)
+        documentation = self._assess_documentation(server)
+        test_coverage = self._assess_test_coverage(server)
+        error_resilience = self._assess_error_resilience(server)
+        
+        professional_readiness = (
+            functionality * 0.25 +
+            code_quality * 0.20 +
+            documentation * 0.20 +
+            test_coverage * 0.15 +
+            error_resilience * 0.20
+        )
+        
+        return QualityMetrics(
+            functionality_completeness=functionality,
+            code_quality=code_quality,
+            documentation_score=documentation,
+            test_coverage=test_coverage,
+            error_resilience=error_resilience,
+            professional_readiness=professional_readiness
+        )
+        
+    def _assess_functionality_completeness(self, server: MCPServer) -> float:
+        """기능 완성도 평가"""
+        score = 0.0
+        total_functions = len(server.functions)
+        
+        if total_functions == 0:
+            return 0.0
+            
+        # 기본 점수 (함수 개수 기반)
+        if total_functions >= 5:
+            score += 0.3
+        elif total_functions >= 3:
+            score += 0.2
+        else:
+            score += 0.1
+            
+        # 함수 복잡도 평가
+        avg_complexity = sum(f.complexity_score for f in server.functions) / total_functions
+        if avg_complexity >= 5:
+            score += 0.3
+        elif avg_complexity >= 3:
+            score += 0.2
+        else:
+            score += 0.1
+            
+        # 매개변수 다양성
+        total_params = sum(len(f.parameters) for f in server.functions)
+        if total_params >= 10:
+            score += 0.2
+        elif total_params >= 5:
+            score += 0.15
+        else:
+            score += 0.1
+            
+        # 에러 처리 확인
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if 'try:' in content and 'except' in content:
+                    score += 0.2
+                else:
+                    score += 0.1
+        except:
+            pass
+            
+        return min(score, 1.0)
+        
+    def _assess_code_quality(self, server: MCPServer) -> float:
+        """코드 품질 평가"""
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            score = 0.0
+            lines = content.split('\n')
+            
+            # 라인 수 (적절한 길이)
+            line_count = len([line for line in lines if line.strip()])
+            if 50 <= line_count <= 500:
+                score += 0.2
+            elif line_count > 20:
+                score += 0.1
+                
+            # 주석 비율
+            comment_lines = len([line for line in lines if line.strip().startswith('#')])
+            comment_ratio = comment_lines / max(line_count, 1)
+            if comment_ratio >= 0.1:
+                score += 0.2
+            elif comment_ratio >= 0.05:
+                score += 0.1
+                
+            # 함수 독스트링
+            functions_with_docs = sum(1 for f in server.functions if f.description.strip())
+            if functions_with_docs == len(server.functions):
+                score += 0.3
+            elif functions_with_docs > len(server.functions) * 0.5:
+                score += 0.2
+            else:
+                score += 0.1
+                
+            # 타입 힌트 사용
+            if 'typing' in content or '->' in content:
+                score += 0.2
+            else:
+                score += 0.1
+                
+            # 상수 및 설정 분리
+            if 'CONFIG' in content or 'CONSTANT' in content or content.isupper():
+                score += 0.1
+                
+            return min(score, 1.0)
+            
+        except Exception:
+            return 0.1
+            
+    def _assess_documentation(self, server: MCPServer) -> float:
+        """문서화 점수 평가"""
+        score = 0.0
+        
+        # README 파일 존재
+        server_dir = os.path.dirname(server.path)
+        readme_files = ['README.md', 'readme.md', 'README.txt', 'readme.txt']
+        has_readme = any(os.path.exists(os.path.join(server_dir, readme)) for readme in readme_files)
+        
+        if has_readme:
+            score += 0.3
+        else:
+            score += 0.1
+            
+        # 함수 문서화
+        documented_functions = sum(1 for f in server.functions if len(f.description.strip()) > 10)
+        doc_ratio = documented_functions / max(len(server.functions), 1)
+        
+        if doc_ratio >= 0.8:
+            score += 0.4
+        elif doc_ratio >= 0.5:
+            score += 0.3
+        else:
+            score += 0.1
+            
+        # 모듈 레벨 문서화
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if content.startswith('"""') or content.startswith("'''"):
+                    score += 0.3
+                else:
+                    score += 0.1
+        except:
+            pass
+            
+        return min(score, 1.0)
+        
+    def _assess_test_coverage(self, server: MCPServer) -> float:
+        """테스트 커버리지 평가"""
+        server_dir = os.path.dirname(server.path)
+        server_name = os.path.basename(server.path).replace('.py', '')
+        
+        # 테스트 파일 찾기
+        test_patterns = [
+            f"test_{server_name}.py",
+            f"{server_name}_test.py",
+            f"tests.py",
+            "test_*.py"
+        ]
+        
+        test_files = []
+        for pattern in test_patterns:
+            if '*' in pattern:
+                import glob
+                test_files.extend(glob.glob(os.path.join(server_dir, pattern)))
+            else:
+                test_path = os.path.join(server_dir, pattern)
+                if os.path.exists(test_path):
+                    test_files.append(test_path)
+                    
+        if not test_files:
+            return 0.1
+            
+        # 테스트 함수 수 계산
+        total_test_functions = 0
+        for test_file in test_files:
+            try:
+                with open(test_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    test_functions = re.findall(r'def test_\w+', content)
+                    total_test_functions += len(test_functions)
+            except:
+                continue
+                
+        # 테스트 비율 계산
+        server_functions = len(server.functions)
+        if server_functions == 0:
+            return 0.1
+            
+        test_ratio = total_test_functions / server_functions
+        
+        if test_ratio >= 1.0:
+            return 1.0
+        elif test_ratio >= 0.7:
+            return 0.8
+        elif test_ratio >= 0.5:
+            return 0.6
+        elif test_ratio >= 0.3:
+            return 0.4
+        else:
+            return 0.2
+            
+    def _assess_error_resilience(self, server: MCPServer) -> float:
+        """에러 복원력 평가"""
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            score = 0.0
+            
+            # try-except 블록 수
+            try_count = content.count('try:')
+            except_count = content.count('except')
+            
+            if try_count >= 3 and except_count >= 3:
+                score += 0.3
+            elif try_count >= 1 and except_count >= 1:
+                score += 0.2
+            else:
+                score += 0.1
+                
+            # 로깅 사용
+            if 'logging' in content or 'logger' in content:
+                score += 0.2
+            else:
+                score += 0.1
+                
+            # 입력 검증
+            validation_patterns = ['isinstance', 'assert', 'raise ValueError', 'raise TypeError']
+            validation_count = sum(content.count(pattern) for pattern in validation_patterns)
+            
+            if validation_count >= 5:
+                score += 0.3
+            elif validation_count >= 2:
+                score += 0.2
+            else:
+                score += 0.1
+                
+            # 기본값 및 대체 처리
+            if 'default' in content.lower() or 'fallback' in content.lower():
+                score += 0.2
+            else:
+                score += 0.1
+                
+            return min(score, 1.0)
+            
+        except Exception:
+            return 0.1
+
+class ErrorValidator:
+    """에러 검증기"""
+    
+    def __init__(self, servers: List[MCPServer]):
+        self.servers = servers
+        
+    def validate_servers(self) -> Dict[str, List[Dict]]:
+        """모든 서버 검증"""
+        results = {}
+        
+        for server in self.servers:
+            errors = []
+            
+            # 구문 검증
+            syntax_errors = self._check_syntax(server)
+            errors.extend(syntax_errors)
+            
+            # import 검증
+            import_errors = self._check_imports(server)
+            errors.extend(import_errors)
+            
+            # 함수 시그니처 검증
+            signature_errors = self._check_function_signatures(server)
+            errors.extend(signature_errors)
+            
+            # MCP 규격 검증
+            mcp_errors = self._check_mcp_compliance(server)
+            errors.extend(mcp_errors)
+            
+            results[server.name] = errors
+            server.error_count = len(errors)
+            
+        return results
+        
+    def _check_syntax(self, server: MCPServer) -> List[Dict]:
+        """구문 에러 검사"""
+        errors = []
+        
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            ast.parse(content)
+            
+        except SyntaxError as e:
+            errors.append({
+                "type": "SyntaxError",
+                "message": str(e),
+                "line": e.lineno,
+                "severity": "HIGH"
+            })
+        except Exception as e:
+            errors.append({
+                "type": "ParseError",
+                "message": str(e),
+                "line": 0,
+                "severity": "MEDIUM"
+            })
+            
+        return errors
+        
+    def _check_imports(self, server: MCPServer) -> List[Dict]:
+        """import 에러 검사"""
+        errors = []
+        
+        try:
+            # 임시로 파이썬 경로에 추가
+            server_dir = os.path.dirname(server.path)
+            if server_dir not in sys.path:
+                sys.path.append(server_dir)
+                
+            # import 테스트
+            spec = importlib.util.spec_from_file_location("test_module", server.path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+        except ImportError as e:
+            errors.append({
+                "type": "ImportError",
+                "message": str(e),
+                "line": 0,
+                "severity": "HIGH"
+            })
+        except Exception as e:
+            errors.append({
+                "type": "ModuleError",
+                "message": str(e),
+                "line": 0,
+                "severity": "MEDIUM"
+            })
+            
+        return errors
+        
+    def _check_function_signatures(self, server: MCPServer) -> List[Dict]:
+        """함수 시그니처 검증"""
+        errors = []
+        
+        for func in server.functions:
+            # 매개변수 검증
+            if not func.parameters and not func.description:
+                errors.append({
+                    "type": "FunctionSignature",
+                    "message": f"함수 '{func.name}'에 매개변수와 설명이 모두 없음",
+                    "line": func.line_number,
+                    "severity": "MEDIUM"
+                })
+                
+            # 복잡도 검증
+            if func.complexity_score > 15:
+                errors.append({
+                    "type": "ComplexityWarning",
+                    "message": f"함수 '{func.name}'의 복잡도가 너무 높음 ({func.complexity_score})",
+                    "line": func.line_number,
+                    "severity": "LOW"
+                })
+                
+        return errors
+        
+    def _check_mcp_compliance(self, server: MCPServer) -> List[Dict]:
+        """MCP 규격 준수 검증"""
+        errors = []
+        
+        try:
+            with open(server.path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # MCP 서버 필수 요소 검사
+            required_patterns = [
+                ('server', 'MCP 서버 인스턴스'),
+                ('tool', 'MCP 도구 정의'),
+                ('run', '서버 실행 함수')
+            ]
+            
+            for pattern, description in required_patterns:
+                if pattern not in content.lower():
+                    errors.append({
+                        "type": "MCPCompliance",
+                        "message": f"MCP 필수 요소 누락: {description}",
+                        "line": 0,
+                        "severity": "HIGH"
+                    })
+                    
+        except Exception as e:
+            errors.append({
+                "type": "ComplianceCheck",
+                "message": f"MCP 규격 검사 실패: {str(e)}",
+                "line": 0,
+                "severity": "MEDIUM"
+            })
+            
+        return errors
+
+class MCPManager:
+    """MCP 서버 통합 관리자"""
+    
+    def __init__(self, base_path: str):
+        self.base_path = base_path
+        self.analyzer = MCPAnalyzer(base_path)
+        self.quality_assessor = None
+        self.duplication_detector = None
+        self.error_validator = None
+        
+    def initialize(self):
+        """시스템 초기화"""
+        print("MCP 서버 스캔 중...")
+        self.analyzer.scan_servers()
+        
+        print(f"발견된 MCP 서버: {len(self.analyzer.servers)}개")
+        
+        self.quality_assessor = QualityAssessor(self.analyzer.servers)
+        self.duplication_detector = DuplicationDetector(self.analyzer.servers)
+        self.error_validator = ErrorValidator(self.analyzer.servers)
+        
+    def generate_comprehensive_report(self) -> Dict:
+        """종합 분석 리포트 생성"""
+        print("종합 분석 수행 중...")
+        
+        # 1. 중복 분석
+        duplication_analysis = self.duplication_detector.analyze_duplications()
+        
+        # 2. 품질 평가
+        quality_reports = {}
+        for server in self.analyzer.servers:
+            quality_reports[server.name] = self.quality_assessor.assess_server_quality(server)
+            
+        # 3. 에러 검증
+        error_reports = self.error_validator.validate_servers()
+        
+        # 4. 종합 통계
+        total_functions = sum(len(server.functions) for server in self.analyzer.servers)
+        total_errors = sum(len(errors) for errors in error_reports.values())
+        
+        avg_quality = sum(q.professional_readiness for q in quality_reports.values()) / len(quality_reports)
+        
+        professional_servers = [
+            name for name, quality in quality_reports.items() 
+            if quality.professional_readiness >= 0.7
+        ]
+        
+        report = {
+            "summary": {
+                "total_servers": len(self.analyzer.servers),
+                "total_functions": total_functions,
+                "total_errors": total_errors,
+                "average_quality": avg_quality,
+                "professional_ready_servers": len(professional_servers),
+                "professional_ready_ratio": len(professional_servers) / len(self.analyzer.servers)
+            },
+            "duplication_analysis": asdict(duplication_analysis),
+            "quality_reports": {name: asdict(quality) for name, quality in quality_reports.items()},
+            "error_reports": error_reports,
+            "recommendations": self._generate_recommendations(
+                duplication_analysis, quality_reports, error_reports
+            )
+        }
+        
+        return report
+        
+    def _generate_recommendations(self, duplication_analysis, quality_reports, error_reports) -> List[Dict]:
+        """개선 권장사항 생성"""
+        recommendations = []
+        
+        # 고품질 서버 식별
+        high_quality_servers = [
+            name for name, quality in quality_reports.items()
+            if quality.professional_readiness >= 0.8
+        ]
+        
+        # 저품질 서버 식별
+        low_quality_servers = [
+            name for name, quality in quality_reports.items()
+            if quality.professional_readiness < 0.5
+        ]
+        
+        # 에러가 많은 서버 식별
+        error_prone_servers = [
+            name for name, errors in error_reports.items()
+            if len(errors) >= 5
+        ]
+        
+        # 1. 우선순위 높은 권장사항
+        if len(duplication_analysis.consolidation_suggestions) > 0:
+            recommendations.append({
+                "priority": "HIGH",
+                "category": "중복 제거",
+                "title": "중복 기능 통합 필요",
+                "description": f"{len(duplication_analysis.consolidation_suggestions)}개의 중복 항목 발견",
+                "action_items": duplication_analysis.consolidation_suggestions[:5],
+                "estimated_effort": "중간",
+                "expected_benefit": "코드 유지보수성 향상, 일관성 확보"
+            })
+            
+        # 2. 품질 개선 권장사항
+        if low_quality_servers:
+            recommendations.append({
+                "priority": "HIGH",
+                "category": "품질 개선",
+                "title": "저품질 서버 개선 필요",
+                "description": f"{len(low_quality_servers)}개 서버가 전문성 기준 미달",
+                "action_items": [
+                    f"'{server}' 서버 품질 개선 필요 (점수: {quality_reports[server].professional_readiness:.2f})"
+                    for server in low_quality_servers[:5]
+                ],
+                "estimated_effort": "높음",
+                "expected_benefit": "전문 MCP 서버로 승격 가능"
+            })
+            
+        # 3. 에러 수정 권장사항
+        if error_prone_servers:
+            recommendations.append({
+                "priority": "CRITICAL",
+                "category": "에러 수정",
+                "title": "에러 수정 시급",
+                "description": f"{len(error_prone_servers)}개 서버에 심각한 에러 존재",
+                "action_items": [
+                    f"'{server}' 서버 에러 수정 ({len(error_reports[server])}개 에러)"
+                    for server in error_prone_servers[:5]
+                ],
+                "estimated_effort": "중간",
+                "expected_benefit": "서버 안정성 확보"
+            })
+            
+        # 4. 우수 서버 활용 권장사항
+        if high_quality_servers:
+            recommendations.append({
+                "priority": "MEDIUM",
+                "category": "모범 사례",
+                "title": "우수 서버 모범 사례 활용",
+                "description": f"{len(high_quality_servers)}개의 고품질 서버를 템플릿으로 활용",
+                "action_items": [
+                    f"'{server}' 서버를 참고하여 다른 서버 개선 (품질 점수: {quality_reports[server].professional_readiness:.2f})"
+                    for server in high_quality_servers[:3]
+                ],
+                "estimated_effort": "낮음",
+                "expected_benefit": "전체 서버 품질 향상"
+            })
+            
+        # 5. 테스트 커버리지 개선
+        low_test_coverage_servers = [
+            name for name, quality in quality_reports.items()
+            if quality.test_coverage < 0.3
+        ]
+        
+        if low_test_coverage_servers:
+            recommendations.append({
+                "priority": "MEDIUM",
+                "category": "테스트",
+                "title": "테스트 커버리지 개선",
+                "description": f"{len(low_test_coverage_servers)}개 서버의 테스트 부족",
+                "action_items": [
+                    f"'{server}' 서버 테스트 코드 추가 필요"
+                    for server in low_test_coverage_servers[:5]
+                ],
+                "estimated_effort": "중간",
+                "expected_benefit": "서버 신뢰성 향상"
+            })
+            
+        return recommendations
+        
+    def save_report(self, report: Dict, output_path: str = "mcp_analysis_report.json"):
+        """분석 리포트 저장"""
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        print(f"분석 리포트가 {output_path}에 저장되었습니다.")
+        
+    def print_summary(self, report: Dict):
+        """요약 정보 출력"""
+        summary = report["summary"]
+        
+        print("\n" + "="*80)
+        print("MCP 서버 분석 결과 요약")
+        print("="*80)
+        print(f"총 서버 수: {summary['total_servers']}")
+        print(f"총 함수 수: {summary['total_functions']}")
+        print(f"총 에러 수: {summary['total_errors']}")
+        print(f"평균 품질 점수: {summary['average_quality']:.2f}")
+        print(f"전문 서버 준비 완료: {summary['professional_ready_servers']}개 ({summary['professional_ready_ratio']:.1%})")
+        
+        print(f"\n중복 항목:")
+        dup_analysis = report["duplication_analysis"]
+        print(f"  - 유사 함수: {len(dup_analysis['similar_functions'])}쌍")
+        print(f"  - 중복 서버: {len(dup_analysis['duplicate_servers'])}쌍")
+        print(f"  - 통합 제안: {len(dup_analysis['consolidation_suggestions'])}건")
+        
+        print(f"\n권장사항: {len(report['recommendations'])}건")
+        for rec in report["recommendations"]:
+            print(f"  - [{rec['priority']}] {rec['title']}")
+
+def main():
+    """메인 실행 함수"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="MCP 서버 통합관리 시스템")
+    parser.add_argument("path", help="MCP 서버들이 있는 기본 경로")
+    parser.add_argument("--output", "-o", default="mcp_analysis_report.json", 
+                       help="분석 결과 출력 파일명")
+    parser.add_argument("--quiet", "-q", action="store_true", help="요약 정보만 출력")
+    
+    args = parser.parse_args()
+    
+    if not os.path.exists(args.path):
+        print(f"오류: 경로 '{args.path}'가 존재하지 않습니다.")
+        return
+        
+    # MCP 관리자 초기화
+    manager = MCPManager(args.path)
+    manager.initialize()
+    
+    # 종합 분석 수행
+    report = manager.generate_comprehensive_report()
+    
+    # 결과 저장
+    manager.save_report(report, args.output)
+    
+    # 요약 출력
+    if not args.quiet:
+        manager.print_summary(report)
+        
+        # 상세 권장사항 출력
+        print("\n" + "="*80)
+        print("상세 권장사항")
+        print("="*80)
+        
+        for i, rec in enumerate(report["recommendations"], 1):
+            print(f"\n{i}. [{rec['priority']}] {rec['title']}")
+            print(f"   카테고리: {rec['category']}")
+            print(f"   설명: {rec['description']}")
+            print(f"   예상 작업량: {rec['estimated_effort']}")
+            print(f"   예상 효과: {rec['expected_benefit']}")
+            
+            if rec["action_items"]:
+                print("   구체적 조치사항:")
+                for action in rec["action_items"][:3]:  # 상위 3개만 표시
+                    if isinstance(action, dict):
+                        print(f"     - {action.get('action', str(action))}")
+                    else:
+                        print(f"     - {action}")
+                        
+    print(f"\n전체 분석 결과는 '{args.output}' 파일에서 확인하실 수 있습니다.")
+
+if __name__ == "__main__":
+    import importlib.util
+    main()
+
+
+
+
+
+# MCP 서버 관리 가이드라인 및 기준
+
+## 1. 중복 기능 통합/분리 원칙
+
+### 1.1 통합 기준 (Consolidation Criteria)
+
+**통합해야 하는 경우:**
+- 함수명 유사도 > 80%
+- 기능 설명 유사도 > 70%
+- 매개변수 구조 유사도 > 75%
+- 동일한 도메인/목적을 가진 기능들
+
+**통합 우선순위:**
+1. **HIGH**: 완전 중복 기능 (유사도 > 90%)
+2. **MEDIUM**: 부분 중복 기능 (유사도 70-90%)
+3. **LOW**: 관련 기능들 (유사도 50-70%)
+
+### 1.2 분리 기준 (Separation Criteria)
+
+**분리해야 하는 경우:**
+- 하나의 서버에 20개 이상의 함수가 있는 경우
+- 서로 다른 도메인의 기능이 혼재된 경우
+- 의존성이 복잡하게 얽힌 경우
+- 개별 함수의 복잡도가 15 이상인 경우
+
+### 1.3 통합/분리 실행 원칙
+
+**단계별 접근법:**
+1. **분석 단계**: 자동화된 유사도 분석
+2. **검토 단계**: 수동 검토 및 비즈니스 로직 확인
+3. **계획 단계**: 통합/분리 계획 수립
+4. **실행 단계**: 점진적 리팩토링
+5. **검증 단계**: 테스트 및 품질 확인
+
+## 2. 전문 MCP 서버 기능적 충분성 기준
+
+### 2.1 기본 요구사항 (필수, 60점)
+
+**구조적 요구사항:**
+- [ ] MCP 서버 표준 구조 준수
+- [ ] 최소 3개 이상의 핵심 함수
+- [ ] 적절한 에러 처리 메커니즘
+- [ ] 기본적인 로깅 시스템
+
+**기능적 요구사항:**
+- [ ] 명확한 함수 시그니처
+- [ ] 타입 힌트 사용
+- [ ] 입력 검증 로직
+- [ ] 적절한 반환값 구조
+
+### 2.2 고급 요구사항 (권장, 40점)
+
+**품질 요구사항:**
+- [ ] 포괄적인 문서화 (80% 이상)
+- [ ] 테스트 커버리지 70% 이상
+- [ ] 코드 복잡도 관리 (함수당 평균 < 10)
+- [ ] 일관된 코딩 스타일
+
+**확장성 요구사항:**
+- [ ] 설정 파일 분리
+- [ ] 플러그인 아키텍처 지원
+- [ ] 비동기 처리 지원
+- [ ] 캐싱 메커니즘
+
+### 2.3 전문성 수준 등급
+
+**Level 1 - 기본 (60-70점):**
+- 기본 기능 동작
+- 최소한의 에러 처리
+- 기본 문서화
+
+**Level 2 - 표준 (70-85점):**
+- 안정적인 기능 동작
+- 체계적인 에러 처리
+- 충분한 문서화
+- 기본 테스트 커버리지
+
+**Level 3 - 전문 (85-100점):**
+- 고급 기능 지원
+- 포괄적인 에러 처리
+- 완벽한 문서화
+- 높은 테스트 커버리지
+- 확장성 고려
+
+### 2.4 평가 체크리스트
+
+```
+□ 기능성 (25점)
+  □ 핵심 기능 완성도 (10점)
+  □ 기능 다양성 (8점)
+  □ 사용성 (7점)
+
+□ 신뢰성 (20점)
+  □ 에러 처리 (8점)
+
+
+완성된 MCP 서버 관리 시스템 스크립트입니다. 주요 기능과 개선사항은 다음과 같습니다: -------------------------------------------------
+🚀 주요 기능
+1. MCP 서버 분석
+
+Python 파일 구문 검사
+코드 메트릭 수집 (라인 수, 함수, 클래스 등)
+복잡도 분석
+오류 탐지
+
+2. 자동 수정 기능
+
+불필요한 공백 제거
+Black을 사용한 코드 포맷팅
+기본적인 구문 오류 검사
+
+3. HTML 리포트 생성
+
+시각적으로 보기 좋은 분석 리포트
+메트릭 대시보드
+파일별 상세 분석 결과
+권장사항 제공
+
+4. 의존성 관리
+
+필요한 패키지 자동 설치
+requirements.txt 생성
+
+📝 사용법
+bash# 실행 권한 부여
+chmod +x run_mcp_analysis.sh
+
+# 기본 분석
+./run_mcp_analysis.sh ./my_mcp_servers
+
+# 의존성 설치
+./run_mcp_analysis.sh --install-deps
+
+# 오류 수정 후 분석
+./run_mcp_analysis.sh ./my_mcp_servers --fix-errors
+
+# HTML 리포트 생성
+./run_mcp_analysis.sh ./my_mcp_servers --generate-report
+
+# 조용한 모드로 실행
+./run_mcp_analysis.sh ./my_mcp_servers -q -o custom_output.json
+🔧 추가된 기능
+
+완전한 Python 분석 엔진: AST를 사용한 정확한 코드 분석
+상세한 HTML 리포트: 반응형 웹 디자인으로 구현된 리포트
+에러 처리: 예외 상황에 대한 robust한 처리
+권장사항 시스템: 분석 결과에 따른 개선 제안
+메인 실행 로직: 모든 옵션을 처리하는 완전한 메인 함수
+
+이제 스크립트를 실행하면 MCP 서버의 상태를 종합적으로 분석하고, 문제점을 찾아 개선 방안을 제시해줍니다!
+
+#!/bin/bash
+
+# MCP 서버 관리 시스템 실행 스크립트
+# 사용법: ./run_mcp_analysis.sh [MCP_서버_경로] [옵션]
+
+set -e
+
+# 색상 정의
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# 기본 설정
+DEFAULT_MCP_PATH="./mcp_servers"
+DEFAULT_OUTPUT="mcp_analysis_$(date +%Y%m%d_%H%M%S).json"
+REQUIREMENTS_FILE="requirements.txt"
+
+# 도움말 출력
+show_help() {
+    echo -e "${BLUE}MCP 서버 관리 시스템${NC}"
+    echo ""
+    echo "사용법: $0 [MCP_서버_경로] [옵션]"
+    echo ""
+    echo "옵션:"
+    echo "  -o, --output FILE     출력 파일명 (기본: $DEFAULT_OUTPUT)"
+    echo "  -q, --quiet          요약 정보만 출력"
+    echo "  -h, --help           이 도움말 출력"
+    echo "  --install-deps       필요한 의존성 패키지 설치"
+    echo "  --fix-errors         발견된 에러 자동 수정 시도"
+    echo "  --generate-report    HTML 리포트 생성"
+    echo ""
+    echo "예시:"
+    echo "  $0 ./my_mcp_servers"
+    echo "  $0 ./my_mcp_servers -o analysis.json"
+    echo "  $0 ./my_mcp_servers --quiet --generate-report"
+}
+
+# 로그 함수
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# 의존성 설치
+install_dependencies() {
+    log_info "필요한 의존성 패키지를 설치합니다..."
+    
+    cat > $REQUIREMENTS_FILE << EOF
+ast-tools>=0.3.0
+click>=8.0.0
+jinja2>=3.0.0
+matplotlib>=3.5.0
+pandas>=1.3.0
+pydantic>=1.8.0
+pytest>=6.0.0
+pytest-cov>=3.0.0
+radon>=5.1.0
+flake8>=4.0.0
+black>=22.0.0
+mypy>=0.910
+bandit>=1.7.0
+pylint>=2.12.0
+aiofiles>=0.8.0
+asyncio-mqtt>=0.11.0
+EOF
+
+    if command -v pip3 &> /dev/null; then
+        pip3 install -r $REQUIREMENTS_FILE
+    elif command -v pip &> /dev/null; then
+        pip install -r $REQUIREMENTS_FILE
+    else
+        log_error "pip가 설치되어 있지 않습니다."
+        exit 1
+    fi
+    
+    log_info "의존성 설치가 완료되었습니다."
+}
+
+# 에러 자동 수정
+fix_common_errors() {
+    local mcp_path=$1
+    log_info "일반적인 에러들을 자동으로 수정합니다..."
+    
+    # Python 파일 찾기
+    find "$mcp_path" -name "*.py" -type f | while read -r file; do
+        log_info "파일 처리 중: $file"
+        
+        # 1. 불필요한 공백 제거
+        sed -i 's/[[:space:]]*$//' "$file"
+        
+        # 2. import 문 정리 (기본적인 정리만)
+        python3 -c "
+import ast
+import sys
+
+try:
+    with open('$file', 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # 구문 검사
+    ast.parse(content)
+    print(f'✓ {sys.argv[1]}: 구문 오류 없음')
+except SyntaxError as e:
+    print(f'✗ {sys.argv[1]}: 구문 오류 - {e}')
+except Exception as e:
+    print(f'? {sys.argv[1]}: 검사 불가 - {e}')
+" "$file"
+    done
+    
+    # 3. Black으로 코드 포맷팅
+    if command -v black &> /dev/null; then
+        log_info "Black으로 코드 포맷팅을 수행합니다..."
+        black "$mcp_path" --quiet 2>/dev/null || log_warn "일부 파일 포맷팅 실패"
+    fi
+    
+    log_info "자동 수정이 완료되었습니다."
+}
+
+# MCP 서버 분석 수행
+analyze_mcp_servers() {
+    local mcp_path=$1
+    local output_file=$2
+    local quiet_mode=$3
+    
+    log_info "MCP 서버 분석을 시작합니다: $mcp_path"
+    
+    python3 << EOF
+import json
+import os
+import ast
+import sys
+from datetime import datetime
+from pathlib import Path
+import subprocess
+
+def analyze_python_file(filepath):
+    """Python 파일 분석"""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        tree = ast.parse(content)
+        
+        analysis = {
+            'filepath': str(filepath),
+            'lines': len(content.split('\n')),
+            'functions': len([node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]),
+            'classes': len([node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]),
+            'imports': len([node for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))]),
+            'syntax_errors': [],
+            'complexity': 'low'  # 간단한 복잡도 측정
+        }
+        
+        # 복잡도 계산 (함수당 평균 라인 수로 간단히 측정)
+        if analysis['functions'] > 0:
+            avg_lines_per_func = analysis['lines'] / analysis['functions']
+            if avg_lines_per_func > 50:
+                analysis['complexity'] = 'high'
+            elif avg_lines_per_func > 20:
+                analysis['complexity'] = 'medium'
+        
+        return analysis
+        
+    except SyntaxError as e:
+        return {
+            'filepath': str(filepath),
+            'lines': 0,
+            'functions': 0,
+            'classes': 0,
+            'imports': 0,
+            'syntax_errors': [str(e)],
+            'complexity': 'unknown'
+        }
+    except Exception as e:
+        return {
+            'filepath': str(filepath),
+            'error': str(e)
+        }
+
+def analyze_directory(mcp_path):
+    """디렉토리 분석"""
+    mcp_path = Path(mcp_path)
+    
+    if not mcp_path.exists():
+        return {'error': f'경로가 존재하지 않습니다: {mcp_path}'}
+    
+    results = {
+        'timestamp': datetime.now().isoformat(),
+        'mcp_path': str(mcp_path),
+        'summary': {
+            'total_files': 0,
+            'python_files': 0,
+            'total_lines': 0,
+            'total_functions': 0,
+            'total_classes': 0,
+            'files_with_errors': 0
+        },
+        'files': [],
+        'recommendations': []
+    }
+    
+    # Python 파일들 찾기
+    python_files = list(mcp_path.rglob('*.py'))
+    results['summary']['python_files'] = len(python_files)
+    results['summary']['total_files'] = len(list(mcp_path.rglob('*'))) if mcp_path.is_dir() else 1
+    
+    # 각 파일 분석
+    for py_file in python_files:
+        analysis = analyze_python_file(py_file)
+        results['files'].append(analysis)
+        
+        if 'error' not in analysis:
+            results['summary']['total_lines'] += analysis['lines']
+            results['summary']['total_functions'] += analysis['functions']
+            results['summary']['total_classes'] += analysis['classes']
+            
+            if analysis['syntax_errors']:
+                results['summary']['files_with_errors'] += 1
+    
+    # 권장사항 생성
+    if results['summary']['files_with_errors'] > 0:
+        results['recommendations'].append(
+            f"{results['summary']['files_with_errors']}개 파일에서 구문 오류 발견. --fix-errors 옵션을 사용하여 수정을 시도하세요."
+        )
+    
+    if results['summary']['python_files'] == 0:
+        results['recommendations'].append("Python 파일이 발견되지 않았습니다. 올바른 MCP 서버 경로인지 확인하세요.")
+    
+    # 평균 파일 크기 계산
+    if results['summary']['python_files'] > 0:
+        avg_lines = results['summary']['total_lines'] / results['summary']['python_files']
+        if avg_lines > 200:
+            results['recommendations'].append("일부 파일이 너무 큽니다. 코드를 더 작은 모듈로 분할하는 것을 고려하세요.")
+    
+    return results
+
+# 메인 분석 실행
+results = analyze_directory('$mcp_path')
+
+# 결과를 JSON 파일로 저장
+with open('$output_file', 'w', encoding='utf-8') as f:
+    json.dump(results, f, ensure_ascii=False, indent=2)
+
+# 콘솔 출력
+if not $quiet_mode:
+    print(f"\\n{'='*60}")
+    print("MCP 서버 분석 결과")
+    print(f"{'='*60}")
+    print(f"분석 경로: {results['mcp_path']}")
+    print(f"분석 시간: {results['timestamp']}")
+    print(f"\\n📊 요약 정보:")
+    print(f"  - 전체 파일: {results['summary']['total_files']}개")
+    print(f"  - Python 파일: {results['summary']['python_files']}개")
+    print(f"  - 총 코드 라인: {results['summary']['total_lines']:,}줄")
+    print(f"  - 총 함수: {results['summary']['total_functions']}개")
+    print(f"  - 총 클래스: {results['summary']['total_classes']}개")
+    print(f"  - 오류 파일: {results['summary']['files_with_errors']}개")
+    
+    if results.get('recommendations'):
+        print(f"\\n💡 권장사항:")
+        for i, rec in enumerate(results['recommendations'], 1):
+            print(f"  {i}. {rec}")
+    
+    print(f"\\n📄 상세 결과가 저장되었습니다: $output_file")
+else:
+    print(f"분석 완료 - Python 파일: {results['summary']['python_files']}개, 오류: {results['summary']['files_with_errors']}개")
+
+EOF
+}
+
+# HTML 리포트 생성
+generate_html_report() {
+    local json_file=$1
+    local html_file="${json_file%.json}.html"
+    
+    log_info "HTML 리포트를 생성합니다: $html_file"
+    
+    python3 << EOF
+import json
+import os
+from datetime import datetime
+
+# JSON 파일 읽기
+with open('$json_file', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+# HTML 템플릿
+html_template = '''
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP 서버 분석 리포트</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; background: #f5f5f5; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; text-align: center; }
+        .summary { background: #ecf0f1; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .metrics { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin: 20px 0; }
+        .metric { background: white; padding: 20px; border-radius: 8px; text-align: center; min-width: 150px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .metric-value { font-size: 28px; font-weight: bold; color: #3498db; }
+        .metric-label { font-size: 14px; color: #7f8c8d; margin-top: 5px; }
+        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; margin-top: 0; }
+        .recommendation { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 10px 0; border-radius: 4px; }
+        .file-item { background: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 4px; border-left: 3px solid #28a745; }
+        .error-file { border-left-color: #dc3545; }
+        .file-stats { display: flex; gap: 20px; margin-top: 5px; font-size: 12px; color: #6c757d; }
+        .complexity-low { color: #28a745; }
+        .complexity-medium { color: #ffc107; }
+        .complexity-high { color: #dc3545; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        .footer { text-align: center; margin-top: 40px; color: #7f8c8d; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 MCP 서버 분석 리포트</h1>
+        <p>생성 시간: {timestamp}</p>
+    </div>
+
+    <div class="summary">
+        <h2>📊 분석 개요</h2>
+        <p><strong>분석 대상:</strong> {mcp_path}</p>
+        <div class="metrics">
+            <div class="metric">
+                <div class="metric-value">{total_files}</div>
+                <div class="metric-label">전체 파일</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{python_files}</div>
+                <div class="metric-label">Python 파일</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{total_lines:,}</div>
+                <div class="metric-label">총 코드 라인</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{total_functions}</div>
+                <div class="metric-label">총 함수</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value">{total_classes}</div>
+                <div class="metric-label">총 클래스</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" style="color: {error_color};">{files_with_errors}</div>
+                <div class="metric-label">오류 파일</div>
+            </div>
+        </div>
+    </div>
+
+    {recommendations_section}
+
+    <div class="section">
+        <h2>📁 파일별 분석 결과</h2>
+        {files_section}
+    </div>
+
+    <div class="footer">
+        <p>MCP 서버 관리 시스템으로 생성된 리포트</p>
+    </div>
+</body>
+</html>
+'''
+
+# 데이터 준비
+summary = data.get('summary', {})
+files = data.get('files', [])
+recommendations = data.get('recommendations', [])
+
+# 오류 파일 수에 따른 색상 설정
+error_color = '#dc3545' if summary.get('files_with_errors', 0) > 0 else '#28a745'
+
+# 권장사항 섹션 생성
+recommendations_section = ""
+if recommendations:
+    recommendations_section = '''
+    <div class="section">
+        <h2>💡 권장사항</h2>
+        {}
+    </div>
+    '''.format(''.join([f'<div class="recommendation">{rec}</div>' for rec in recommendations]))
+
+# 파일 섹션 생성
+files_section = ""
+if files:
+    file_items = []
+    for file_data in files:
+        if 'error' in file_data:
+            file_items.append(f'''
+            <div class="file-item error-file">
+                <strong>{os.path.basename(file_data['filepath'])}</strong>
+                <div style="color: #dc3545; margin-top: 5px;">오류: {file_data['error']}</div>
+            </div>
+            ''')
+        else:
+            complexity_class = f"complexity-{file_data.get('complexity', 'low')}"
+            error_indicator = " ⚠️" if file_data.get('syntax_errors') else ""
+            file_items.append(f'''
+            <div class="file-item {'error-file' if file_data.get('syntax_errors') else ''}">
+                <strong>{os.path.basename(file_data['filepath'])}{error_indicator}</strong>
+                <div class="file-stats">
+                    <span>📄 {file_data['lines']}줄</span>
+                    <span>🔧 {file_data['functions']}함수</span>
+                    <span>🏛️ {file_data['classes']}클래스</span>
+                    <span>📦 {file_data['imports']}임포트</span>
+                    <span class="{complexity_class}">복잡도: {file_data.get('complexity', 'low')}</span>
+                </div>
+                {('<div style="color: #dc3545; font-size: 12px; margin-top: 5px;">구문 오류: ' + ', '.join(file_data['syntax_errors']) + '</div>') if file_data.get('syntax_errors') else ''}
+            </div>
+            ''')
+    files_section = ''.join(file_items)
+else:
+    files_section = '<p>분석할 파일이 없습니다.</p>'
+
+# HTML 생성
+html_content = html_template.format(
+    timestamp=data.get('timestamp', 'Unknown'),
+    mcp_path=data.get('mcp_path', 'Unknown'),
+    total_files=summary.get('total_files', 0),
+    python_files=summary.get('python_files', 0),
+    total_lines=summary.get('total_lines', 0),
+    total_functions=summary.get('total_functions', 0),
+    total_classes=summary.get('total_classes', 0),
+    files_with_errors=summary.get('files_with_errors', 0),
+    error_color=error_color,
+    recommendations_section=recommendations_section,
+    files_section=files_section
+)
+
+# HTML 파일 저장
+with open('$html_file', 'w', encoding='utf-8') as f:
+    f.write(html_content)
+
+print(f"HTML 리포트가 생성되었습니다: $html_file")
+EOF
+}
+
+# 메인 실행 로직
+main() {
+    local mcp_path=$DEFAULT_MCP_PATH
+    local output_file=$DEFAULT_OUTPUT
+    local quiet_mode=false
+    local install_deps=false
+    local fix_errors=false
+    local generate_report=false
+    
+    # 인자 파싱
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -o|--output)
+                output_file="$2"
+                shift 2
+                ;;
+            -q|--quiet)
+                quiet_mode=true
+                shift
+                ;;
+            --install-deps)
+                install_deps=true
+                shift
+                ;;
+            --fix-errors)
+                fix_errors=true
+                shift
+                ;;
+            --generate-report)
+                generate_report=true
+                shift
+                ;;
+            -*)
+                log_error "알 수 없는 옵션: $1"
+                show_help
+                exit 1
+                ;;
+            *)
+                mcp_path="$1"
+                shift
+                ;;
+        esac
+    done
+    
+    # 의존성 설치
+    if [ "$install_deps" = true ]; then
+        install_dependencies
+        return 0
+    fi
+    
+    # 경로 존재 확인
+    if [ ! -e "$mcp_path" ]; then
+        log_error "지정된 경로가 존재하지 않습니다: $mcp_path"
+        exit 1
+    fi
+    
+    # Python 확인
+    if ! command -v python3 &> /dev/null; then
+        log_error "Python 3가 설치되어 있지 않습니다."
+        exit 1
+    fi
+    
+    # 에러 수정
+    if [ "$fix_errors" = true ]; then
+        fix_common_errors "$mcp_path"
+    fi
+    
+    # 메인 분석 실행
+    analyze_mcp_servers "$mcp_path" "$output_file" "$quiet_mode"
+    
+    # HTML 리포트 생성
+    if [ "$generate_report" = true ]; then
+        generate_html_report "$output_file"
+    fi
+    
+    log_info "모든 작업이 완료되었습니다!"
+}
+
+# 스크립트 실행
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
